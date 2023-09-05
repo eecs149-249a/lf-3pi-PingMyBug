@@ -19,16 +19,20 @@ preamble {=
 =}
 
 main reactor {
-  timer t(0, 250 ms);
-  state led_on:bool = false;
+  timer t1(0 ms, 3000 ms);
+  timer t2(50000 ms, 8000 ms);
+  // state led_on:bool = false;
 
   reaction(startup) {=
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
   =}
-  reaction(t) {=
-    self->led_on = !self->led_on;
-    printf("LED State: %b\n", self->led_on);
-    gpio_put(PICO_DEFAULT_LED_PIN, !self->led_on);
+  reaction(t1) {=
+    printf("LED State: %b\n", false);
+    gpio_put(PICO_DEFAULT_LED_PIN, false);
+  =}
+  reaction(t2) {=
+    printf("LED State: %b\n", true);
+    gpio_put(PICO_DEFAULT_LED_PIN, true);
   =}
 }
