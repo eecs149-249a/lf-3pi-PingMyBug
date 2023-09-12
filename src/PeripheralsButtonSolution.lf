@@ -1,0 +1,49 @@
+target C {
+    platform: {
+      name: "rp2040",
+      board: "pololu_3pi_2040_robot"
+    },
+    threading: false,
+  }
+  import Display from "lib/Display.lf"
+  
+  preamble {=
+    #include <stdio.h>
+    #include <pico/stdlib.h>
+    #include <hardware/gpio.h>
+    // inline bool read_io(uint read_addr) {
+    //     uint32_t mask = 1ul << customioput;
+    //     // uint32_t* set_offset = mem_ptr + 0x14;
+    //     // uint32_t* clear_offset = mem_ptr + 0x18;
+    //     uint32_t* set_offset = 0xd0000014;
+    //     uint32_t* clear_offset = 0xd0000018;
+
+    //     if (read_addr == set_offset) {
+    //         return true;
+    //     } else if (read_addr == clear_offset) {
+    //         return false;
+    //     }
+    // }
+  =}
+
+  main reactor {
+    timer t(0, 250 ms);
+    state button:bool;
+    d = new Display();
+  
+    reaction(startup) {=
+      gpio_init(PICO_DEFAULT_LED_PIN);
+      gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_IN);
+    =}
+
+    reaction(t) -> d.line0 {=
+        self->button = gpio_get(PICO_DEFAULT_LED_PIN);
+
+        if (self->button) {
+            lf_set(d.line0, "Button: OFF");
+        } else {
+            lf_set(d.line0, "Button: ON");
+        }
+    =}
+  }
+  
