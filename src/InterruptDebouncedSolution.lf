@@ -7,17 +7,24 @@ target C {
     keepalive: true
   }
 
-main reactor InterruptActionSolution {
+main reactor InterruptDebouncedSolution {
     preamble {=
         #include <stdio.h>
         #include <pico/stdlib.h>
         #include <hardware/gpio.h>
         static void * action;
+        static instant_t last_time_pressed = 0;
         void gpio_callback(uint gpio, uint32_t events){
-            printf("GPIO: %u, Events: %u\n", gpio, events);
-            lf_schedule(action, 0);
+            instant_t curr_time = lf_time_physical();
+
+            if (curr_time - last_time_pressed > 200000000) {
+                printf("GPIO: %u, Events: %u\n", gpio, events);
+                lf_schedule(action, 0);
+                last_time_pressed = curr_time;
+            }
         }
     =}
+
     physical action buttonPress;
     reaction(startup) -> buttonPress {=
         action = buttonPress;
