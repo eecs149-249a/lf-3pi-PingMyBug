@@ -48,14 +48,12 @@ main reactor InterruptModalSolution {
 
     mode CountingDown {
         reaction(down) {=
-            self->count++;
+            self->count--;
             printf("Counting down: %d\n", self->count);
-
         =}
         reaction(buttonPress) -> CountingUp, d.line0 {=
             lf_set(d.line0, self->count);
             lf_set_mode(CountingUp);
-
         =}
     }
 }
