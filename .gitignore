@@ -5,6 +5,7 @@ src-gen/
 include/
 build/
 .vscode/
-
+CMakeFiles/
+CMake*
 # MacOS junk
 .DS_Store

@@ -1,0 +1,71 @@
+/**
+ * Template for robot driving lab exercises.
+ * This template just periodically switches between a
+ * STOPPED and a DRIVING mode, updating the LCD display
+ * on each change of mode.
+ */
+ target C {
+    platform: {
+      name: "rp2040",
+      board: "pololu_3pi_2040_robot"
+    },
+    threading: false,
+  }
+  
+import Display from "lib/Display.lf"
+  
+preamble {=
+  #include <motors.h>
+  #include <pico/stdlib.h>
+  #include <hardware/pwm.h>
+  #include <hardware/gpio.h>
+  #include <stdbool.h>
+=}
+
+
+reactor Robot {
+  output notify:string   // Notify of mode change.
+  input drive:bool
+  reaction(startup) -> notify {=
+    motors_init(1); // 1 indicates no clock division.
+    lf_set(notify, "INIT");
+  =}
+  method set_power(power:float, forward:bool, left:bool) {=
+    power = fabsf(power);
+    if (power > 1.0f) power = 1.0f;
+    // Round down:
+    uint16_t duty_cycle = (uint16_t)(power * MAX_MOTOR_POWER);
+    motors_set_power(duty_cycle, forward, left);
+  =}
+
+  initial mode STOPPED {
+    reaction(drive) -> DRIVING, notify {=
+        lf_set_mode(DRIVING);
+        lf_set(notify, "DRIVING");
+        set_power(0.1f, true, true);
+        set_power(0.1f, true, false);
+    =}
+  }
+
+  mode DRIVING {
+    reaction(drive) -> STOPPED, notify {=
+        lf_set_mode(STOPPED);
+        lf_set(notify, "STOPPED");
+        set_power(0.0f, false, false);
+        set_power(0.0f, false, true);
+    =}
+  }
+}
+
+main reactor {
+  timer t(0, 2 sec)
+  state drive:bool = false
+  // state right_power:float
+  robot = new Robot()
+  display = new Display()
+  reaction(t) -> robot.drive {=
+      lf_set(robot.drive, self->drive);
+      self->drive = !self->drive;
+  =}
+  robot.notify -> display.line0;
+}

@@ -40,4 +40,15 @@ main reactor {
     snprintf(buf, 17, "R: %d", encoder.right->value);
     lf_set(display.line2, buf); 
   =}
+
+}
+
+reactor AngleToDistance {
+  input angleChange: int
+  output distance: float
+  
+  reaction(angleChange) -> distance {=
+      float D = (angleChange->value / 360.0) * 3.14159265359 * 0.03175;
+      lf_set(distance, D);
+  =}
 }

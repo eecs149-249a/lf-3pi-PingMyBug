@@ -1,0 +1,46 @@
+target C {
+    platform: {
+      name: "rp2040",
+      board: "pololu_3pi_2040_robot"
+    },
+    threading: false,
+  }
+  
+  import Display from "lib/Display.lf"
+  import Encoders from "lib/Encoders.lf"
+
+  reactor RobotEncoderSolution {
+    display = new Display()
+    encoder = new Encoders()
+    leftConverter = encoder.AngletoDistance()
+    rightConverter = encoder.AngletoDistance()
+
+    timer t(0, 1sec)
+
+    reaction(t) -> encoder.trigger {=
+        lf_set(encoder.trigger, true);
+      =}
+
+    reaction(startup) -> display.line0 {=
+        lf_set(display.line0, "Distance (m):");
+    =}
+
+    encoder.left -> leftConverter.angleChange;
+    encoder.right -> rightConverter.angleChange;
+
+    reaction(leftConverter.distance) -> display.line1 {=
+        static char buf[17];
+        snprintf(buf, 17, "L: %d", leftConverter.distance->value);
+        lf_set(display.line1, buf);
+    =}
+    
+    reaction(rightConverter.distance) -> display.line2 {=
+        static char buf[17];
+        snprintf(buf, 17, "R: %d", rightConverter.distance->value);
+        lf_set(display.line2, buf); 
+    =}
+  }
+
+  main reactor {
+    d = new RobotEncoderSolution()
+  }
