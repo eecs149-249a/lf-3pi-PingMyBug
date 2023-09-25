@@ -4,4 +4,105 @@ target C {
       board: "pololu_3pi_2040_robot"
     },
     threading: false,
-  }
+}
+  
+import Display from "lib/Display.lf"
+import Motors from "lib/Motors.lf"
+import GyroAngle from "lib/IMU.lf"
+import Encoders from "lib/Encoders.lf"
+import Bump from "lib/Bump.lf"
+
+reactor AngleToDistance {
+    input angleChange: int32_t
+    output distance: float
+
+    reaction(angleChange) -> distance {=
+        float D = (angleChange->value / 360.0) * 3.14159265359 * 0.03175;
+        lf_set(distance->value, D);
+    =}
+}
+
+main reactor {
+    display = new Display()
+    motors = new Motors()
+    gyro = new GyroAngle()
+    encoders = new Encoders()
+    angleToDistanceLeft = new AngleToDistance()
+    angleToDistanceRight = new AngleToDistance()
+    bump = new Bump()
+
+    timer t(0, 100ms)
+
+    state lastAngle: float = 0.0;
+    state lastLeft: float = 0.0;
+    state lastRight: float = 0.0;
+
+    reaction(t) -> gyro.trigger, encoders.trigger {=
+        lf_set(gyro.trigger, true);
+        lf_set(encoders.trigger, true);
+    =}
+
+    reaction(startup) -> display.line0 {=
+        lf_set(display.line0, "Square Drive");
+    =}
+
+    encoders.left -> angleToDistanceLeft.angleChange;
+    encoders.right -> angleToDistanceRight.angleChange;
+
+    initial mode DRIVINGFORWARD {
+        reaction(t, angleToDistanceLeft.distance, angleToDistanceRight.distance, gyro.z) -> motors.left_power, motors.right_power, TURNING {=
+            // Check for bump events and switch mode if needed
+            if (bump.left->value || bump.right->value) {
+                lf_set_mode(AVOIDINGOBSTACLE);
+            }
+            // Drive forward
+            lf_set(motors.left_power, 0.1);
+            lf_set(motors.right_power, 0.1);
+
+            if (angleToDistanceLeft.distance->value - self->lastLeft >= 0.5 && angleToDistanceRight.distance->value - self->lastRight >= 0.5) {
+                // Reset distance and angle for next mode
+                self->lastAngle = gyro.z->value;
+                lf_set_mode(TURNING);
+            }
+        =}
+    }
+
+    mode TURNING {
+        reaction(t, angleToDistanceLeft.distance, angleToDistanceRight.distance, gyro.z) -> motors.left_power, motors.right_power, DRIVINGFORWARD {=
+
+            // Check for bump events and switch mode if needed
+            if (bump.left->value || bump.right->value) {
+                lf_set_mode(AVOIDINGOBSTACLE);
+            }
+            // Turn the robot
+            lf_set(motors.left_power, -0.1);
+            lf_set(motors.right_power, 0.1);
+
+            // Check if the robot has turned 90 degrees
+            if (fabs(gyro.z->value - self->lastAngle) >= 90.0) {
+                // Reset distance and angle for next mode
+                self->lastLeft = angleToDistanceLeft.distance->value;
+                self->lastRight = angleToDistanceRight.distance->value;
+                lf_set_mode(DRIVINGFORWARD);
+            }
+        =}
+    }
+
+    mode AVOIDINGOBSTACLE {
+        reaction(t, bump.left, bump.right) -> motors.left_power, motors.right_power, DRIVINGFORWARD {=
+            // Logic to back off and avoid obstacle
+            if (bump.left->value) {
+                // If left bump sensor is triggered, back off and turn slightly right
+                lf_set(motors.left_power, -0.1);
+                lf_set(motors.right_power, -0.05);
+            } else if (bump.right->value) {
+                // If right bump sensor is triggered, back off and turn slightly left
+                lf_set(motors.left_power, -0.05);
+                lf_set(motors.right_power, -0.1);
+            }
+
+            // You may want to set a condition to switch back to DRIVINGFORWARD mode after avoiding the obstacle
+            // lf_set_mode(DRIVINGFORWARD);
+        =}
+    }
+}
