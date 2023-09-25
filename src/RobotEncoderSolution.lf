@@ -9,11 +9,21 @@ target C {
   import Display from "lib/Display.lf"
   import Encoders from "lib/Encoders.lf"
 
-  reactor RobotEncoderSolution {
+  reactor AngleToDistance {
+    input angleChange: int32_t
+    output distance: float
+    
+    reaction(angleChange) -> distance {=
+        float D = (angleChange->value / 360.0) * 3.14159265359 * 0.03175;
+        lf_set(distance->value, D);
+    =}
+  }
+
+  main reactor {
     display = new Display()
     encoder = new Encoders()
-    leftConverter = encoder.AngletoDistance()
-    rightConverter = encoder.AngletoDistance()
+    leftConverter = new AngleToDistance()
+    rightConverter = new AngleToDistance()
 
     timer t(0, 1sec)
 
@@ -39,8 +49,4 @@ target C {
         snprintf(buf, 17, "R: %d", rightConverter.distance->value);
         lf_set(display.line2, buf); 
     =}
-  }
-
-  main reactor {
-    d = new RobotEncoderSolution()
   }
