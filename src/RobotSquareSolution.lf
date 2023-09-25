@@ -10,25 +10,18 @@ import Display from "lib/Display.lf"
 import Motors from "lib/Motors.lf"
 import GyroAngle from "lib/IMU.lf"
 import Encoders from "lib/Encoders.lf"
-
-preamble {=
-    #define WHEEL_DIAMETER 0.03175  // in meters
-    #define PI 3.14159265358979323846
-=}
   
-  
-  reactor AngleToDistance {
+reactor AngleToDistance {
     input angleChange: int32_t
     output distance: float
-    
+
     reaction(angleChange) -> distance {=
         float D = (angleChange->value / 360.0) * 3.14159265359 * 0.03175;
         lf_set(distance->value, D);
     =}
-  }
+}
 
 main reactor {
-
     display = new Display()
     motors = new Motors()
     gyro = new GyroAngle()
@@ -62,7 +55,6 @@ main reactor {
 
             if (angleToDistanceLeft.distance->value - self->lastLeft >= 0.5 && angleToDistanceRight.distance->value - self->lastRight >= 0.5) {
                 // Reset distance and angle for next mode
-                
                 self->lastAngle = gyro.z->value;
                 lf_set_mode(TURNING);
             }
