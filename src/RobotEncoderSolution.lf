@@ -6,47 +6,47 @@ target C {
     threading: false,
   }
   
-  import Display from "lib/Display.lf"
-  import Encoders from "lib/Encoders.lf"
+import Display from "lib/Display.lf"
+import Encoders from "lib/Encoders.lf"
 
-  reactor AngleToDistance {
-    input angleChange: int32_t
-    output distance: float
-    
-    reaction(angleChange) -> distance {=
-        float D = (angleChange->value / 360.0) * 3.14159265359 * 0.03175;
-        lf_set(distance->value, D);
-    =}
-  }
+reactor AngleToDistance {
+  input angleChange: int32_t
+  output distance: float
+  
+  reaction(angleChange) -> distance {=
+      float D = (angleChange->value / 360.0) * 3.14159265359 * 0.03175;
+      lf_set(distance->value, D);
+  =}
+}
 
-  main reactor {
-    display = new Display()
-    encoder = new Encoders()
-    leftConverter = new AngleToDistance()
-    rightConverter = new AngleToDistance()
+main reactor {
+  display = new Display()
+  encoder = new Encoders()
+  leftConverter = new AngleToDistance()
+  rightConverter = new AngleToDistance()
 
-    timer t(0, 1sec)
+  timer t(0, 1sec)
 
-    reaction(t) -> encoder.trigger {=
-        lf_set(encoder.trigger, true);
-      =}
-
-    reaction(startup) -> display.line0 {=
-        lf_set(display.line0, "Distance (m):");
+  reaction(t) -> encoder.trigger {=
+      lf_set(encoder.trigger, true);
     =}
 
-    encoder.left -> leftConverter.angleChange;
-    encoder.right -> rightConverter.angleChange;
+  reaction(startup) -> display.line0 {=
+      lf_set(display.line0, "Distance (m):");
+  =}
 
-    reaction(leftConverter.distance) -> display.line1 {=
-        static char buf[17];
-        snprintf(buf, 17, "L: %d", leftConverter.distance->value);
-        lf_set(display.line1, buf);
-    =}
-    
-    reaction(rightConverter.distance) -> display.line2 {=
-        static char buf[17];
-        snprintf(buf, 17, "R: %d", rightConverter.distance->value);
-        lf_set(display.line2, buf); 
-    =}
-  }
+  encoder.left -> leftConverter.angleChange;
+  encoder.right -> rightConverter.angleChange;
+
+  reaction(leftConverter.distance) -> display.line1 {=
+      static char buf[17];
+      snprintf(buf, 17, "L: %d", leftConverter.distance->value);
+      lf_set(display.line1, buf);
+  =}
+  
+  reaction(rightConverter.distance) -> display.line2 {=
+      static char buf[17];
+      snprintf(buf, 17, "R: %d", rightConverter.distance->value);
+      lf_set(display.line2, buf); 
+  =}
+}

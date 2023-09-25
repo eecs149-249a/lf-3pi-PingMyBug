@@ -28,12 +28,6 @@ preamble {=
   }
 
 main reactor {
-    preamble {=
-        #define FORWARD_SPEED 0.1
-        #define TURN_SPEED 0.1
-        #define TURN_ANGLE 90.0
-        #define DRIVE_DISTANCE 0.5  // in meters
-    =}
 
     display = new Display()
     motors = new Motors()
@@ -63,10 +57,10 @@ main reactor {
     initial mode DRIVINGFORWARD {
         reaction(t, angleToDistanceLeft.distance, angleToDistanceRight.distance, gyro.z) -> motors.left_power, motors.right_power, TURNING {=
             // Drive forward
-            lf_set(motors.left_power, FORWARD_SPEED);
-            lf_set(motors.right_power, FORWARD_SPEED);
+            lf_set(motors.left_power, 0.1);
+            lf_set(motors.right_power, 0.1);
 
-            if (angleToDistanceLeft.distance->value - self->lastLeft >= DRIVE_DISTANCE && angleToDistanceRight.distance->value - self->lastRight >= DRIVE_DISTANCE) {
+            if (angleToDistanceLeft.distance->value - self->lastLeft >= 0.5 && angleToDistanceRight.distance->value - self->lastRight >= 0.5) {
                 // Reset distance and angle for next mode
                 
                 self->lastAngle = gyro.z->value;
@@ -78,11 +72,11 @@ main reactor {
     mode TURNING {
         reaction(t, angleToDistanceLeft.distance, angleToDistanceRight.distance, gyro.z) -> motors.left_power, motors.right_power, DRIVINGFORWARD {=
             // Turn the robot
-            lf_set(motors.left_power, -TURN_SPEED);
-            lf_set(motors.right_power, TURN_SPEED);
+            lf_set(motors.left_power, -0.1);
+            lf_set(motors.right_power, 0.1);
 
             // Check if the robot has turned 90 degrees
-            if (fabs(gyro.z->value - self->lastAngle) >= TURN_ANGLE) {
+            if (fabs(gyro.z->value - self->lastAngle) >= 90.0) {
                 // Reset distance and angle for next mode
                 self->lastLeft = angleToDistanceLeft.distance->value;
                 self->lastRight = angleToDistanceRight.distance->value;
