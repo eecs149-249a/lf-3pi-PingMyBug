@@ -17,7 +17,7 @@ reactor AngleToDistance {
 
     reaction(angleChange) -> distance {=
         float D = (angleChange->value / 360.0) * 3.14159265359 * 0.03175;
-        lf_set(distance->value, D);
+        lf_set(distance, D);
     =}
 }
 
@@ -29,15 +29,16 @@ main reactor {
     angleToDistanceLeft = new AngleToDistance()
     angleToDistanceRight = new AngleToDistance()
 
-    timer t(0, 100ms)
+    timer t(0, 40ms)
 
     state lastAngle: float = 0.0;
     state lastLeft: float = 0.0;
     state lastRight: float = 0.0;
 
-    reaction(t) -> gyro.trigger, encoders.trigger {=
+    reaction(t) -> gyro.trigger, encoders.trigger,  display.line2 {=
         lf_set(gyro.trigger, true);
         lf_set(encoders.trigger, true);
+        lf_set(display.line2, encoders.trigger);
     =}
 
     reaction(startup) -> display.line0 {=
@@ -48,7 +49,8 @@ main reactor {
     encoders.right -> angleToDistanceRight.angleChange;
 
     initial mode DRIVINGFORWARD {
-        reaction(t, angleToDistanceLeft.distance, angleToDistanceRight.distance, gyro.z) -> motors.left_power, motors.right_power, TURNING {=
+        reaction(t, angleToDistanceLeft.distance, angleToDistanceRight.distance, gyro.z) 
+        -> motors.left_power, motors.right_power, TURNING {=
             // Drive forward
             lf_set(motors.left_power, 0.1);
             lf_set(motors.right_power, 0.1);
@@ -62,16 +64,28 @@ main reactor {
     }
 
     mode TURNING {
-        reaction(t, angleToDistanceLeft.distance, angleToDistanceRight.distance, gyro.z) -> motors.left_power, motors.right_power, DRIVINGFORWARD {=
+        reaction(t, angleToDistanceLeft.distance, angleToDistanceRight.distance, gyro.z) 
+        -> motors.left_power, motors.right_power, DRIVINGFORWARD, display.line1 {=
             // Turn the robot
-            lf_set(motors.left_power, -0.1);
+            static char buf0[17];
+
+            snprintf(buf0, 17, "z:%0.3f", gyro.z->value);
+            // float error = 90.0 - fabs(gyro.z->value - self->lastAngle);
+            // float turn_speed_adjusted = 0.1 * error / 90.0;
+            lf_set(display.line1, buf0);
+            lf_set(motors.left_power, 0.0);
             lf_set(motors.right_power, 0.1);
+
+            // if(fabs(turn_speed_adjusted) < 0.05) {
+            //     turn_speed_adjusted = (turn_speed_adjusted < 0) ? -0.05 : 0.05;
+            // }
 
             // Check if the robot has turned 90 degrees
             if (fabs(gyro.z->value - self->lastAngle) >= 90.0) {
                 // Reset distance and angle for next mode
                 self->lastLeft = angleToDistanceLeft.distance->value;
                 self->lastRight = angleToDistanceRight.distance->value;
+                self->lastAngle = gyro.z->value;
                 lf_set_mode(DRIVINGFORWARD);
             }
         =}
