@@ -15,7 +15,7 @@ reactor AngleToDistance {
   
   reaction(angleChange) -> distance {=
       float D = (angleChange->value / 360.0) * 3.14159265359 * 0.03175;
-      lf_set(distance->value, D);
+      lf_set(distance, D);
   =}
 }
 
@@ -40,13 +40,13 @@ main reactor {
 
   reaction(leftConverter.distance) -> display.line1 {=
       static char buf[17];
-      snprintf(buf, 17, "L: %d", leftConverter.distance->value);
+      snprintf(buf, 17, "L: %f", leftConverter.distance->value);
       lf_set(display.line1, buf);
   =}
   
   reaction(rightConverter.distance) -> display.line2 {=
       static char buf[17];
-      snprintf(buf, 17, "R: %d", rightConverter.distance->value);
+      snprintf(buf, 17, "R: %f", rightConverter.distance->value);
       lf_set(display.line2, buf); 
   =}
 }

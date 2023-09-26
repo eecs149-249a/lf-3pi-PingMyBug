@@ -32,10 +32,12 @@ main reactor {
     bump = new Bump()
 
     timer t(0, 100ms)
-
+    state bumpLeft:bool = false;
+    state bumpRight:bool = false;
     state lastAngle: float = 0.0;
     state lastLeft: float = 0.0;
     state lastRight: float = 0.0;
+    state turnDirection: float = 1.0;
 
     reaction(t) -> gyro.trigger, encoders.trigger {=
         lf_set(gyro.trigger, true);
@@ -52,7 +54,7 @@ main reactor {
     initial mode DRIVINGFORWARD {
         reaction(t, angleToDistanceLeft.distance, angleToDistanceRight.distance, gyro.z) -> motors.left_power, motors.right_power, TURNING {=
             // Check for bump events and switch mode if needed
-            if (bump.left->value || bump.right->value) {
+            if (self->bumpLeft || self->bumpRight) {
                 lf_set_mode(AVOIDINGOBSTACLE);
             }
             // Drive forward
@@ -71,12 +73,12 @@ main reactor {
         reaction(t, angleToDistanceLeft.distance, angleToDistanceRight.distance, gyro.z) -> motors.left_power, motors.right_power, DRIVINGFORWARD {=
 
             // Check for bump events and switch mode if needed
-            if (bump.left->value || bump.right->value) {
+            if (self->bumpLeft || self->bumpRight) {
                 lf_set_mode(AVOIDINGOBSTACLE);
             }
             // Turn the robot
-            lf_set(motors.left_power, -0.1);
-            lf_set(motors.right_power, 0.1);
+            lf_set(motors.left_power, self->turnDirection * -0.1);
+            lf_set(motors.right_power, self->turnDirection * 0.1);
 
             // Check if the robot has turned 90 degrees
             if (fabs(gyro.z->value - self->lastAngle) >= 90.0) {
@@ -87,22 +89,47 @@ main reactor {
             }
         =}
     }
+    reaction (bump.left) {=
+        self->bumpLeft = bump.left;
+    =}
+    reaction (bump.right) {=
+        self->bumpRight = bump.right;
+    =}
 
     mode AVOIDINGOBSTACLE {
-        reaction(t, bump.left, bump.right) -> motors.left_power, motors.right_power, DRIVINGFORWARD {=
+        reaction(t) -> motors.left_power, motors.right_power, DRIVINGFORWARD, TURNING {=
             // Logic to back off and avoid obstacle
-            if (bump.left->value) {
+            if (self->bumpLeft) {
                 // If left bump sensor is triggered, back off and turn slightly right
                 lf_set(motors.left_power, -0.1);
-                lf_set(motors.right_power, -0.05);
-            } else if (bump.right->value) {
-                // If right bump sensor is triggered, back off and turn slightly left
-                lf_set(motors.left_power, -0.05);
                 lf_set(motors.right_power, -0.1);
-            }
+                if (angleToDistanceLeft.distance->value - self->lastLeft <= -0.3 && angleToDistanceRight.distance->value - self->lastRight <= 0.3) {
 
-            // You may want to set a condition to switch back to DRIVINGFORWARD mode after avoiding the obstacle
-            // lf_set_mode(DRIVINGFORWARD);
+                    lf_set(motors.left_power, -0.1);
+                    lf_set(motors.right_power, -0.1);
+                    // Reset distance and angle for next mode
+                    self->lastAngle = gyro.z->value;
+                    self->turnDirection = -1.0;
+                    self->bumpLeft = false;
+                    lf_set_mode(TURNING);
+                }
+            } else if (self->bumpRight) {
+                // If right bump sensor is triggered, back off and turn slightly left
+                lf_set(motors.left_power, -0.1);
+                lf_set(motors.right_power, -0.1);
+                if (angleToDistanceLeft.distance->value - self->lastLeft <= -0.3 && angleToDistanceRight.distance->value - self->lastRight <= -0.3) {
+
+                    lf_set(motors.left_power, -0.1);
+                    lf_set(motors.right_power, -0.1);
+                    // Reset distance and angle for next mode
+                    self->lastAngle = gyro.z->value;
+                    self->bumpRight = false;
+                    self->turnDirection = 1.0;
+                    self->lastLeft = angleToDistanceLeft.distance->value;
+                    self->lastRight = angleToDistanceRight.distance->value;
+                    lf_set_mode(TURNING);
+                }
+            }
         =}
     }
 }
