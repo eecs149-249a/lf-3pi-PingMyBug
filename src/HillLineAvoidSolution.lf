@@ -1,0 +1,293 @@
+target C {
+    platform: {
+      name: "rp2040",
+      board: "pololu_3pi_2040_robot"
+    },
+    threading: false,
+  }
+  
+  import Line from "lib/Line.lf"
+  import Display from "lib/Display.lf"
+  import Motors from "lib/Motors.lf"
+  import GyroAngle, Accelerometer, Gyro from "lib/IMU.lf"
+  import Encoders from "lib/Encoders.lf"
+  import Tilt from "lib/Tilt.lf"
+
+  preamble {=
+    #define WHEEL_DIAMETER 0.03175  // in meters
+    #define PI 3.14159265358979323846
+  =}
+
+reactor AngleToDistance {
+    input angle:int32_t;
+    output distance:float;
+  
+    reaction(angle) -> distance {=
+        float circumference = PI * WHEEL_DIAMETER;
+        float distanceTraveled = (angle->value / 360.0) * circumference;
+        lf_set(distance, distanceTraveled);
+    =}
+  }
+  
+  main reactor(calibration_time: time = 10 s, sample_period: time = 100 ms) {
+    preamble {=
+        #define UPHILL_SPEED 0.15
+        #define FORWARD_SPEED 0.12
+        #define TURN_SPEED 0.1
+        #define TURN_ANGLE 15.0
+        #define DRIVE_DISTANCE 0.5 
+        #define BACKUP_DISTANCE 0.01
+        #define CONTINUE_DIST 0.2
+        #define DARK_THRESHOLD 900
+    =}
+
+    line = new Line()
+    display = new Display()
+    motors = new Motors()
+    gyro = new GyroAngle()
+    a = new Accelerometer()
+    tilt = new Tilt()
+    g = new Gyro()
+    encoders = new Encoders()
+
+
+
+    angleToDistanceLeft = new AngleToDistance()
+    angleToDistanceRight = new AngleToDistance()
+
+    state didTurn: bool = false;
+  
+    state lastAngle: float = 0.0;
+    state lastLeft: float = 0.0;
+    state lastRight: float = 0.0;
+
+    state leftLine: bool = false;
+    state centerLine: bool = false;
+    state rightLine: float = false;
+  
+    method resett(ld: float, lr: float, la: float) {=
+      self->lastLeft = ld;
+      self->lastRight = lr;
+      self->lastAngle = la;
+    =}
+
+    reaction(t) -> a.trigger, gyro.trigger, encoders.trigger {=
+        lf_set(gyro.trigger, true);
+        lf_set(a.trigger, true);
+        lf_set(encoders.trigger, true);
+    =}
+
+
+    encoders.left -> angleToDistanceLeft.angle
+    encoders.right -> angleToDistanceRight.angle
+    
+  
+    timer t(0, sample_period)
+    // Timer used to display seconds.
+    timer seconds(0, 1 s)
+    timer end_calibration(calibration_time)
+    timer start_delay(13s)
+    state count: int = 0
+    
+    reaction(startup) -> display.line0, display.line1, display.line2 {=
+      lf_set(display.line0, "CALIBRATING");
+      lf_set(display.line1, "Roll robot over");
+      lf_set(display.line2, "light and dark.");
+    =}
+  
+
+  
+    
+  
+    reaction(t) -> line.trigger {=
+      lf_set(line.trigger, true);
+    =}
+
+    reaction(a.x, a.y, a.z) ->tilt.x, tilt.y, tilt.z {=
+        float x = 1.04 * a.x->value - 0.026;
+        float y = 0.99 * a.y->value + 0.003;
+        float z = a.z->value - 0.013;
+
+        lf_set(tilt.x, x);
+        lf_set(tilt.y, y);
+        lf_set(tilt.z, z);
+    =}
+
+    reaction(tilt.pitch, tilt.roll) -> display.line0, display.line1 {=
+        static char buf0[17];
+        static char buf1[17];
+
+        snprintf(buf0, 17, "roll:%2.4f", tilt.roll->value);
+        snprintf(buf1, 17, "pitch:%2.4f", tilt.pitch->value);
+
+        
+        lf_set(display.line0, buf0);
+        lf_set(display.line1, buf1);
+    =}
+
+
+
+    initial mode CALIBRATE{
+        reaction(end_calibration) ->line.calibrate {=
+            lf_set(line.calibrate, false);
+            
+          =}
+        reaction(start_delay) ->DRIVINGFORWARD {=
+     
+            lf_set_mode(DRIVINGFORWARD);
+          =}
+    }
+
+    mode DRIVINGFORWARD {
+
+       
+
+        reaction(angleToDistanceLeft.distance, angleToDistanceRight.distance) tilt.pitch, gyro.z -> motors.left_power, motors.right_power, CONTINUE, TURNING_R, AOL, AOR, display.line0 {=
+              
+            // Drive forward
+            if (fabs(tilt.pitch->value) < 10 && !self->didTurn){
+                lf_set(display.line0, "FORWARD FLAT");
+      
+                lf_set_mode(CONTINUE);
+                // lf_set(motors.left_power, FORWARD_SPEED);
+                // lf_set(motors.right_power, FORWARD_SPEED);
+            }else{
+                lf_set(display.line0, "UPHILL");
+                lf_set(motors.left_power, UPHILL_SPEED);
+                lf_set(motors.right_power, UPHILL_SPEED);
+            }
+            if (angleToDistanceLeft.distance->value - self->lastLeft >= DRIVE_DISTANCE && angleToDistanceRight.distance->value - self->lastRight >= DRIVE_DISTANCE) {
+                // Reset distance and angle for next mode
+                resett(angleToDistanceLeft.distance->value, angleToDistanceRight.distance->value, gyro.z->value);
+                lf_set_mode(TURNING_R);
+            }
+            
+        =}
+
+        
+
+        reaction(line.reflect) angleToDistanceLeft.distance, angleToDistanceRight.distance, gyro.z -> display.line0,AOL, AOR{=
+        // CENTER LINE DETECT
+            if (line.reflect->value[1]> DARK_THRESHOLD && line.reflect->value[1]> DARK_THRESHOLD && line.reflect->value[2]> DARK_THRESHOLD){
+                lf_set(display.line0, "Bump Detected Right");
+                resett(angleToDistanceLeft.distance->value, angleToDistanceRight.distance->value, gyro.z->value);
+                lf_set_mode(AOR);
+            }
+             // LEFT LINE DETECT
+            else if (line.reflect->value[0]> DARK_THRESHOLD || line.reflect->value[1]> DARK_THRESHOLD){
+                lf_set(display.line0, "Bump Detected LEFT");
+                resett(angleToDistanceLeft.distance->value, angleToDistanceRight.distance->value, gyro.z->value);
+                lf_set_mode(AOL);
+            }
+             // RIGHT LINE DETECT
+            else if (line.reflect->value[3]> DARK_THRESHOLD || line.reflect->value[4]> DARK_THRESHOLD){
+                lf_set(display.line0, "Bump Detected Right");
+                resett(angleToDistanceLeft.distance->value, angleToDistanceRight.distance->value, gyro.z->value);
+                lf_set_mode(AOR);
+            }
+        =}
+    
+    }
+    
+      mode TURNING_L {
+          reaction(t, angleToDistanceLeft.distance, angleToDistanceRight.distance, gyro.z) -> motors.left_power, motors.right_power, DRIVINGFORWARD, AOL, AOR, display.line0 {=
+            //   if(self->leftBumped) lf_set_mode(AOL);
+            // if(self->rightBumped) lf_set_mode(AOR);
+              lf_set(display.line0, "Turning Left");
+              lf_set(motors.left_power, -TURN_SPEED);
+              lf_set(motors.right_power, TURN_SPEED);
+    
+              if (fabs(gyro.z->value - self->lastAngle) >= TURN_ANGLE) {
+                resett(angleToDistanceLeft.distance->value, angleToDistanceRight.distance->value, gyro.z->value);
+                  lf_set_mode(DRIVINGFORWARD);
+              }
+          =}
+ 
+    
+      }
+    
+      mode TURNING_R {
+        reaction(t, angleToDistanceLeft.distance, angleToDistanceRight.distance, gyro.z) -> motors.left_power, motors.right_power, DRIVINGFORWARD, AOL, AOR, display.line0 {=
+          //   if(self->leftBumped) lf_set_mode(AOL);
+          // if(self->rightBumped) lf_set_mode(AOR);
+            lf_set(display.line0, "Turning Right");
+            lf_set(motors.left_power, TURN_SPEED);
+            lf_set(motors.right_power, -TURN_SPEED);
+    
+            if (fabs(gyro.z->value - self->lastAngle) >= TURN_ANGLE) {
+                resett(angleToDistanceLeft.distance->value, angleToDistanceRight.distance->value, gyro.z->value);
+                lf_set_mode(DRIVINGFORWARD);
+            }
+        =}
+    
+    }
+    
+      mode AOL {
+        reaction(angleToDistanceLeft.distance, angleToDistanceRight.distance) gyro.z -> motors.left_power, motors.right_power, TURNING_R, display.line0 {=
+                // If the left bumper is hit, reverse in the right direction
+                lf_set(motors.left_power, -FORWARD_SPEED);
+                lf_set(motors.right_power, -FORWARD_SPEED);
+                lf_set(display.line0, "Avoid Left");
+                if (angleToDistanceLeft.distance->value - self->lastLeft <= -BACKUP_DISTANCE && angleToDistanceRight.distance->value - self->lastRight <= -BACKUP_DISTANCE) {
+
+                  resett(angleToDistanceLeft.distance->value, angleToDistanceRight.distance->value, gyro.z->value);
+                  lf_set_mode(TURNING_R);
+                }
+        =}
+    }
+    mode AOR {
+      reaction(t, angleToDistanceLeft.distance, angleToDistanceRight.distance) gyro.z -> motors.left_power, motors.right_power, TURNING_L, display.line0 {=
+              // If the right bumper is hit, reverse in the left direction
+              lf_set(motors.left_power, -FORWARD_SPEED);
+              lf_set(motors.right_power, -FORWARD_SPEED);
+              lf_set(display.line0, "Avoid Right");
+              if (angleToDistanceLeft.distance->value - self->lastLeft <= -BACKUP_DISTANCE && angleToDistanceRight.distance->value - self->lastRight <= -BACKUP_DISTANCE) {
+
+                resett(angleToDistanceLeft.distance->value, angleToDistanceRight.distance->value, gyro.z->value);
+                lf_set_mode(TURNING_L);
+              }
+      =}
+    }
+
+    mode CONTINUE {
+        reaction(t, angleToDistanceLeft.distance, angleToDistanceRight.distance) gyro.z -> motors.left_power, motors.right_power, TURN_AROUND, display.line0 {=
+                // If the right bumper is hit, reverse in the left direction
+                lf_set(motors.left_power, FORWARD_SPEED);
+                lf_set(motors.right_power, FORWARD_SPEED);
+                lf_set(display.line0, "Going forward a lil");
+                if (angleToDistanceLeft.distance->value - self->lastLeft >= CONTINUE_DIST && angleToDistanceRight.distance->value - self->lastRight >= CONTINUE_DIST) {
+  
+                  resett(angleToDistanceLeft.distance->value, angleToDistanceRight.distance->value, gyro.z->value);
+                  lf_set_mode(TURN_AROUND);
+                }
+        =}
+        
+    }
+    mode TURN_AROUND {
+        reaction(t, angleToDistanceLeft.distance, angleToDistanceRight.distance, gyro.z) -> motors.left_power, motors.right_power, DRIVINGFORWARD, AOL, AOR, display.line0 {=
+
+              lf_set(display.line0, "Turning Around");
+              lf_set(motors.left_power, TURN_SPEED);
+              lf_set(motors.right_power, -TURN_SPEED);
+      
+              if (fabs(gyro.z->value - self->lastAngle) >= 160) {
+                  resett(angleToDistanceLeft.distance->value, angleToDistanceRight.distance->value, gyro.z->value);
+                  self->didTurn = true;
+                  lf_set_mode(DRIVINGFORWARD);
+              }
+          =}
+    }
+    mode CONTINUE_AGAIN {
+        reaction(t, angleToDistanceLeft.distance, angleToDistanceRight.distance) gyro.z -> motors.left_power, motors.right_power, DRIVINGFORWARD, display.line0 {=
+                // If the right bumper is hit, reverse in the left direction
+                lf_set(motors.left_power, FORWARD_SPEED);
+                lf_set(motors.right_power, FORWARD_SPEED);
+                lf_set(display.line0, "Going forward again");
+                if (angleToDistanceLeft.distance->value - self->lastLeft >= CONTINUE_DIST && angleToDistanceRight.distance->value - self->lastRight >= CONTINUE_DIST) {
+  
+                  resett(angleToDistanceLeft.distance->value, angleToDistanceRight.distance->value, gyro.z->value);
+                  lf_set_mode(DRIVINGFORWARD);
+                }
+        =}
+    }
+  }
