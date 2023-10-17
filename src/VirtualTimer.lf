@@ -1,0 +1,239 @@
+target C {
+    platform: "RP2040",
+    threading: false,
+    keepalive: true
+  }
+  
+  preamble {=
+    #include <hardware/gpio.h>
+    #include <pico/stdlib.h>
+    #define ALARM_NUM 0
+    #define ALARM_IRQ TIMER_IRQ_0
+  =}
+  
+  main reactor {
+    preamble {=
+  
+      typedef void (*virtual_timer_callback_t)(void);
+   
+      // Definition of linked list node 
+      typedef struct node_t {
+        /* Put the variables needed for linked list node here */
+        // value for the timer
+        uint32_t timer_value;
+        virtual_timer_callback_t cb_ptr;
+        uint32_t microseconds;
+       
+  
+        /*********************************************
+            DO NOT CHANGE THE CODE BELOW
+        *********************************************/
+        // next node pointer
+        struct node_t * next ;
+        } node_t ;
+  
+      //The linked list for timer
+      static node_t* linked_list = NULL;
+      bool state = false;
+      uint32_t saved_node;
+      // linked list operation functions
+      // insert the node in the sorted linked list (linked_list) and return the sorted linked list after the insertion
+      void list_insert_sorted(node_t* node){
+         if(linked_list == NULL){
+            node -> next = NULL;
+            linked_list = node;
+         }
+         else{
+            if(linked_list -> timer_value > node -> timer_value){
+                node -> next = linked_list;
+                linked_list = node;
+              }     
+            else{
+                // node is somewhere after the head
+                node_t* prev_node = linked_list;
+                node_t* curr_node = linked_list->next;
+                while(curr_node != NULL && curr_node -> timer_value < node -> timer_value){
+                    // iterate until end of list or the current node has a greater value
+                    prev_node = curr_node;
+                    curr_node = curr_node -> next;
+                }
+                // insert node
+                prev_node -> next = node;
+                node -> next = curr_node;
+            } 
+         }
+      }
+  
+      // remove the node from linked list
+      void list_remove(node_t* node){
+          if(linked_list != NULL){
+              if(linked_list == node){
+                  linked_list = linked_list -> next;
+              }
+              else{
+                  node_t* prev_node = linked_list;
+                  node_t* curr_node = linked_list -> next;
+                  while(curr_node != NULL && curr_node != node){
+                      prev_node = curr_node;
+                      curr_node = curr_node -> next;
+                  }
+                  if(curr_node != NULL){
+                      prev_node -> next = curr_node -> next; 
+                  }
+              }
+          }
+      }
+      // return and remove the first node in the linked list
+      node_t* list_remove_first(){
+        node_t* head = linked_list;
+        if (head != NULL) {
+            linked_list = head->next;
+        }
+        return head;
+      }
+      /*********************************************
+          DO NOT CHANGE THE CODE ABOVE
+      *********************************************/
+  
+      /* You can also create your own linked list functions here. */
+  
+  
+      void lab5_timer_irq_handler(void){
+        irq_set_enabled(ALARM_IRQ, false);
+        hw_clear_bits(&timer_hw->intr, 1u << ALARM_NUM);
+        printf("Timer Fired!\n");
+        node_t* ll_node = list_remove_first();
+        ll_node->cb_ptr();
+        if (ll_node->microseconds == 0){
+            free(ll_node);
+            if(linked_list!=NULL){
+                timer_hw->alarm[ALARM_NUM] = (uint32_t) linked_list->timer_value;
+            }
+        }else{
+            //Add the offset of the current time to the node, which should preserve the original timer value
+            ll_node->timer_value = timer_hw->timerawl + ll_node->microseconds;
+            list_insert_sorted(ll_node);
+            
+        }
+
+        while (linked_list!=NULL && linked_list->timer_value <timer_hw->timerawl){
+            node_t* ll_node2 = list_remove_first();
+            ll_node2->cb_ptr();
+            if (ll_node2->microseconds == 0){
+                free(ll_node2);
+            }else{       
+                ll_node2->timer_value = timer_hw->timerawl + ll_node2->microseconds;
+                list_insert_sorted(ll_node2);
+            }       
+        }
+        if(linked_list!=NULL){
+            timer_hw->alarm[ALARM_NUM] = (uint32_t) linked_list->timer_value;
+        }
+        irq_set_enabled(ALARM_IRQ, true);
+      }
+
+      void led_blink_handler(void){
+        printf("In Blink Handler!\n");
+        gpio_put(PICO_DEFAULT_LED_PIN, state);
+        state = !state;
+      }
+
+      void led_on_handler(void){
+        printf("LED ON!\n");
+        gpio_put(PICO_DEFAULT_LED_PIN, false);
+      }
+
+      void led_off_handler(void){
+        printf("LED OFF!\n");
+        gpio_put(PICO_DEFAULT_LED_PIN, true);
+      }
+
+      void do_nothing(void){
+      }
+
+      void virtual_timer_init(void){
+        hw_set_bits(&timer_hw->inte, 1u << ALARM_NUM);
+        irq_set_exclusive_handler(ALARM_IRQ, lab5_timer_irq_handler);
+        irq_set_enabled(ALARM_IRQ, true);
+        
+      }
+      uint32_t virtual_timer_start(uint32_t microseconds, virtual_timer_callback_t cb){
+        node_t* ll_node = malloc(sizeof(node_t));
+        ll_node->timer_value = timer_hw->timerawl + microseconds;
+        ll_node->cb_ptr = cb;
+        ll_node->microseconds = 0;
+        list_insert_sorted(ll_node);
+        // timer_hw->alarm[ALARM_NUM] = (uint32_t) ll_node->timer_value;
+       
+        timer_hw->alarm[ALARM_NUM] = (uint32_t) linked_list->timer_value;
+        
+        return (uint32_t)ll_node;
+      }
+      uint32_t virtual_timer_start_repeated(uint32_t microseconds, virtual_timer_callback_t cb){
+        node_t* ll_node = malloc(sizeof(node_t));
+        ll_node->timer_value = timer_hw->timerawl + microseconds;
+        ll_node->microseconds = microseconds;
+        ll_node->cb_ptr = cb;
+        list_insert_sorted(ll_node);
+        // timer_hw->alarm[ALARM_NUM] = (uint32_t) ll_node->timer_value;
+        
+        timer_hw->alarm[ALARM_NUM] = (uint32_t) linked_list->timer_value;
+        
+        return (uint32_t)ll_node;
+      }
+
+      void virtual_timer_cancel(uint32_t time_id ){
+        hw_clear_bits(&timer_hw->intr, 1u << ALARM_NUM);
+        irq_set_enabled(ALARM_IRQ, false);
+        list_remove((node_t*) time_id);
+        if(linked_list!=NULL){
+            timer_hw->alarm[ALARM_NUM] = (uint32_t) linked_list->timer_value;
+        }
+        irq_set_enabled(ALARM_IRQ, true);
+      }
+  
+    =}
+  
+  
+    // timer print_hw_timer(0, 5000ms)
+    timer print_hw_timer(0, 1s)
+    timer cancel_t(10s, 5s)
+  
+    reaction(startup) {=
+        // initialize the LED and the virtual timer    
+        gpio_init(PICO_DEFAULT_LED_PIN);
+        gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+        gpio_put(25, true);
+        virtual_timer_init();
+        
+        virtual_timer_start_repeated(1000000, led_blink_handler);
+        virtual_timer_start_repeated(2000000, do_nothing);
+        // virtual_timer_start(2000010, led_off_handler);
+        // virtual_timer_start(4000000, led_off_handler);
+        // virtual_timer_start(6000000, led_off_handler);
+        // virtual_timer_start(2000000, led_on_handler);
+        // virtual_timer_start(3000000, led_on_handler);
+        // virtual_timer_start(5000000, led_on_handler);
+
+
+        
+
+
+    =}
+    
+    reaction(print_hw_timer){=
+        /* TODO for 9.2.2 */
+        uint32_t lo = timer_hw->timelr;
+        // printf("%u\n", lo);
+
+    =}
+
+reaction(cancel_t){=
+    /* TODO for 9.2.2 */
+    // virtual_timer_cancel(saved_node);
+    // printf("%u\n", lo);
+
+=}
+  
+    /* TODO: add reaction and timer to create the environment to test */
+  }
